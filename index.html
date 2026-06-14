@@ -232,6 +232,20 @@ textarea.input{ resize:vertical; min-height:70px; line-height:1.5; }
 .btn-google:disabled{ opacity:.45; cursor:not-allowed; }
 .btn-google svg{ width:20px; height:20px; flex:0 0 auto; }
 .setup-notice{ margin:12px 0 2px; font-size:12.5px; line-height:1.7; color:var(--sub); text-align:left; background:var(--accent-soft); border:1px dashed var(--accent); border-radius:12px; padding:12px 14px; }
+
+/* ───── 추가: 할일 그룹 · 디플러스 · 캘린더 상세 ───── */
+.grp-head{ display:flex; align-items:center; gap:8px; margin:18px 2px 8px; }
+.grp-name{ font-size:13px; font-weight:800; color:var(--ink); }
+.grp-cnt{ font-size:11px; font-weight:800; color:var(--sub); background:var(--seg-bg); border-radius:999px; padding:1px 9px; }
+.grp-edit{ margin-left:auto; background:none; border:none; color:var(--sub); font-size:14px; cursor:pointer; padding:4px; }
+.grp-empty{ font-size:12.5px; color:var(--hint-fg); padding:2px 4px 8px; }
+.dday .d-num.up{ color:var(--brand); }
+.cal-dd{ position:absolute; top:2px; right:3px; font-size:10px; line-height:1; }
+.dd-sec{ font-size:12px; font-weight:800; color:var(--sub); margin:16px 2px 4px; }
+.dd-detail-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 2px; border-bottom:1px solid var(--line); font-size:14px; font-weight:600; }
+.dd-detail-row span{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dd-detail-row b{ flex:0 0 auto; }
+.dd-detail-row b.chip-pr{ font-weight:800; }
 </style>
 </head>
 <body>
@@ -463,7 +477,7 @@ const TYPE_LABEL = { counter:"카운터", check:"체크", minutes:"시간(분)",
 
 const freshState = () => ({
   nick:"하루", created: todayKey(),
-  routine: clone(DEFAULT_ROUTINE), logs:{}, todos:[], ddays:[]
+  routine: clone(DEFAULT_ROUTINE), logs:{}, todos:[], ddays:[], todoGroups:[]
 });
 
 /* ═════════ 상태 + 저장 (게스트=로컬 · 클라우드=Firestore) ═════════ */
@@ -479,7 +493,8 @@ function normalize(s){
     nick: s.nick || d.nick, created: s.created || d.created,
     routine: Array.isArray(s.routine) && s.routine.length ? s.routine : d.routine,
     logs: s.logs || {}, todos: Array.isArray(s.todos) ? s.todos : [],
-    ddays: Array.isArray(s.ddays) ? s.ddays : []
+    ddays: (Array.isArray(s.ddays) ? s.ddays : []).map(x => ({ ...x, kind: x.kind || "down" })),
+    todoGroups: Array.isArray(s.todoGroups) ? s.todoGroups : []
   };
 }
 
@@ -675,30 +690,56 @@ function sortTodos(arr){
   else a.sort((x, y) => (y.pr - x.pr) || byDue(x, y));
   return a;
 }
-function renderTodos(){
-  const active = sortTodos(state.todos.filter(t => !t.done));
-  const done = state.todos.filter(t => t.done).sort((a,b) => (b.doneAt||0) - (a.doneAt||0));
-  $("todo-sub").textContent = "할 일 " + active.length + "개" + (done.length ? " · 완료 " + done.length : "");
-  const box = $("todo-list");
-  if (!active.length && !done.length){ box.innerHTML = `<div class="empty-msg">아직 할 일이 없어요 📋<br>오른쪽 위 ＋ 로 추가해 보세요.</div>`; return; }
-  const PR = ["낮음","보통","높음"];
-  const row = t => `<div class="todo ${t.done?'done':''}">
+const PR_LABEL = ["낮음","보통","높음"];
+function todoRow(t){
+  return `<div class="todo ${t.done?'done':''}">
     <div class="box" data-act="chk" data-id="${t.id}">${t.done?'✓':''}</div>
     <div class="body" data-act="edit" data-id="${t.id}">
       <div class="t-text">${esc(t.text)}</div>
       <div class="t-meta">
-        <span class="chip-pr pr${t.pr}">${PR[t.pr]}</span>
+        <span class="chip-pr pr${t.pr}">${PR_LABEL[t.pr]}</span>
         ${dueChip(t.due, t.done)}
       </div>
     </div></div>`;
-  box.innerHTML = active.map(row).join("")
-    + (done.length ? `<div class="section-label">완료</div>` + done.map(row).join("")
-        + `<button class="btn btn-ghost" id="clear-done">완료 ${done.length}개 지우기</button>` : "");
+}
+function renderTodos(){
+  const active = state.todos.filter(t => !t.done);
+  const done = state.todos.filter(t => t.done).sort((a,b) => (b.doneAt||0) - (a.doneAt||0));
+  $("todo-sub").textContent = "할 일 " + active.length + "개" + (done.length ? " · 완료 " + done.length : "");
+  const box = $("todo-list");
+  if (!active.length && !done.length && !state.todoGroups.length){
+    box.innerHTML = `<div class="empty-msg">아직 할 일이 없어요 📋<br>오른쪽 위 ＋ 로 추가해 보세요.</div>`; return;
+  }
+  const groups = state.todoGroups;
+  let html = "";
+  if (groups.length){
+    groups.forEach(g => {
+      const items = sortTodos(active.filter(t => t.gid === g.id));
+      html += `<div class="grp-head"><span class="grp-name">${esc(g.name)}</span>`
+        + `<span class="grp-cnt">${items.length}</span>`
+        + `<button class="grp-edit" data-gedit="${g.id}">✎</button></div>`;
+      html += items.length ? items.map(todoRow).join("") : `<div class="grp-empty">아직 없어요</div>`;
+    });
+    const ungrouped = sortTodos(active.filter(t => !t.gid || !groups.some(g => g.id === t.gid)));
+    if (ungrouped.length){
+      html += `<div class="grp-head"><span class="grp-name">그룹 없음</span><span class="grp-cnt">${ungrouped.length}</span></div>`;
+      html += ungrouped.map(todoRow).join("");
+    }
+  } else {
+    html += sortTodos(active).map(todoRow).join("");
+  }
+  if (done.length){
+    html += `<div class="section-label">완료</div>` + done.map(todoRow).join("")
+      + `<button class="btn btn-ghost" id="clear-done">완료 ${done.length}개 지우기</button>`;
+  }
+  box.innerHTML = html;
   box.querySelectorAll("[data-act]").forEach(el => el.addEventListener("click", () => {
     const t = state.todos.find(x => x.id === el.dataset.id);
     if (el.dataset.act === "chk"){ t.done = !t.done; t.doneAt = t.done ? Date.now() : 0; save(); renderTodos(); }
     else openTodoSheet(t);
   }));
+  box.querySelectorAll("[data-gedit]").forEach(el => el.addEventListener("click", () =>
+    openGroupSheet(state.todoGroups.find(g => g.id === el.dataset.gedit))));
   const cd = $("clear-done");
   if (cd) cd.addEventListener("click", () => { state.todos = state.todos.filter(t => !t.done); save(); renderTodos(); });
 }
@@ -709,24 +750,40 @@ document.querySelectorAll("#todo-sort .seg-btn").forEach(b => b.addEventListener
   renderTodos();
 }));
 function openTodoSheet(t){
-  const e = t || { id:uid7(), text:"", pr:1, due:"", done:false };
+  const e = t || { id:uid7(), text:"", pr:1, due:"", done:false, gid:"" };
+  const grpPills = () => `<button class="pill ${!e.gid?'on':''}" data-g="">그룹 없음</button>`
+    + state.todoGroups.map(g => `<button class="pill ${e.gid===g.id?'on':''}" data-g="${g.id}">${esc(g.name)}</button>`).join("")
+    + `<button class="pill" data-g="__new__" style="border-style:dashed">＋ 새 그룹</button>`;
   openSheet(`<h3>${t?"할 일 수정":"할 일 추가"}</h3>
     <div class="field"><label>할 일</label><input class="input" id="f-text" value="${esc(e.text)}" placeholder="무엇을 해야 하나요?"></div>
     <div class="field"><label>중요도</label><div class="seg" id="f-pr">
       <button class="seg-btn ${e.pr===0?'on':''}" data-v="0">낮음</button>
       <button class="seg-btn ${e.pr===1?'on':''}" data-v="1">보통</button>
       <button class="seg-btn ${e.pr===2?'on':''}" data-v="2">높음</button></div></div>
+    <div class="field"><label>그룹</label><div class="pill-row" id="f-grp">${grpPills()}</div></div>
     <div class="field"><label>마감일 (선택)</label><input class="input" type="date" id="f-due" value="${e.due}"></div>
     <button class="btn btn-accent" id="f-save">저장</button>
     ${t?'<button class="btn btn-ghost" id="f-del" style="color:var(--red);border-color:var(--red)">삭제</button>':''}`,
   () => {
-    let pr = e.pr;
+    let pr = e.pr, gid = e.gid || "";
     $("f-pr").querySelectorAll(".seg-btn").forEach(b => b.addEventListener("click", () => {
       pr = +b.dataset.v; $("f-pr").querySelectorAll(".seg-btn").forEach(x => x.classList.toggle("on", x === b));
     }));
+    function bindGrp(){
+      $("f-grp").querySelectorAll(".pill").forEach(b => b.addEventListener("click", () => {
+        if (b.dataset.g === "__new__"){
+          const n = prompt("새 그룹 이름"); if (!n || !n.trim()) return;
+          const ng = { id:uid7(), name:n.trim() }; state.todoGroups.push(ng); save();
+          gid = ng.id; e.gid = gid; $("f-grp").innerHTML = grpPills(); bindGrp(); return;
+        }
+        gid = b.dataset.g; e.gid = gid;
+        $("f-grp").querySelectorAll(".pill").forEach(x => x.classList.toggle("on", x === b));
+      }));
+    }
+    bindGrp();
     $("f-save").addEventListener("click", () => {
       const text = $("f-text").value.trim(); if (!text){ $("f-text").focus(); return; }
-      e.text = text; e.pr = pr; e.due = $("f-due").value || "";
+      e.text = text; e.pr = pr; e.gid = gid; e.due = $("f-due").value || "";
       if (!t) state.todos.push(e);
       save(); closeSheet(); renderTodos();
     });
@@ -735,51 +792,90 @@ function openTodoSheet(t){
     });
   });
 }
+function openGroupSheet(g){
+  if (!g) return;
+  openSheet(`<h3>그룹 수정</h3>
+    <div class="field"><label>그룹 이름</label><input class="input" id="g-name" value="${esc(g.name)}"></div>
+    <button class="btn btn-accent" id="g-save">저장</button>
+    <button class="btn btn-ghost" id="g-del" style="color:var(--red);border-color:var(--red)">그룹 삭제 (할 일은 유지)</button>`,
+  () => {
+    $("g-save").addEventListener("click", () => {
+      const n = $("g-name").value.trim(); if (!n) return;
+      g.name = n; save(); closeSheet(); renderTodos();
+    });
+    $("g-del").addEventListener("click", () => {
+      state.todoGroups = state.todoGroups.filter(x => x.id !== g.id);
+      state.todos.forEach(t => { if (t.gid === g.id) t.gid = ""; });
+      save(); closeSheet(); renderTodos();
+    });
+  });
+}
 
-/* ═════════ 디데이 ═════════ */
+/* ═════════ 디데이 · 디플러스 ═════════ */
+function ddNum(d, tk){
+  const diff = dayDiff(d.date, tk); // date - today (양수=미래)
+  if (d.kind === "up"){
+    const since = -diff; // 지난 날부터 며칠
+    return { num: since >= 0 ? "D+" + since : "D-" + (-since),
+             cls: since === 0 ? "today" : "up",
+             sub: since >= 0 ? (since + 1) + "일째" : "시작 전" };
+  }
+  return { num: diff === 0 ? "D-DAY" : diff > 0 ? "D-" + diff : "D+" + (-diff),
+           cls: diff === 0 ? "today" : diff > 0 ? (diff <= 7 ? "soon" : "") : "past",
+           sub: "" };
+}
+function ddCard(d, tk){
+  const r = ddNum(d, tk);
+  const dt = parseKey(d.date);
+  return `<div class="dday" data-id="${d.id}">
+    <div class="d-ic">${esc(d.icon||'📌')}</div>
+    <div><div class="d-title">${esc(d.title)}</div>
+      <div class="d-date">${dt.getFullYear()}. ${dt.getMonth()+1}. ${dt.getDate()} (${DOW[dt.getDay()]})${r.sub?' · '+r.sub:''}</div></div>
+    <div class="d-num ${r.cls}">${r.num}</div></div>`;
+}
 function renderDdays(){
   const box = $("dday-list");
-  if (!state.ddays.length){ box.innerHTML = `<div class="empty-msg">디데이가 없어요 📌<br>시험 · 여행 · 기념일을 추가해 보세요.</div>`; return; }
+  if (!state.ddays.length){ box.innerHTML = `<div class="empty-msg">아직 없어요 📌<br>시험·여행은 <b>디데이</b>, 기념일은 <b>디플러스</b>로 추가해 보세요.</div>`; return; }
   const tk = todayKey();
-  const arr = state.ddays.slice().sort((a, b) => {
+  const downs = state.ddays.filter(d => d.kind !== "up").sort((a, b) => {
     const da = dayDiff(a.date, tk), db = dayDiff(b.date, tk);
     const fa = da >= 0, fb = db >= 0;
     if (fa !== fb) return fa ? -1 : 1;
     return fa ? da - db : db - da;
   });
-  box.innerHTML = arr.map(d => {
-    const diff = dayDiff(d.date, tk);
-    const cls = diff === 0 ? "today" : diff > 0 ? (diff <= 7 ? "soon" : "") : "past";
-    const num = diff === 0 ? "D-DAY" : diff > 0 ? "D-" + diff : "D+" + (-diff);
-    const dt = parseKey(d.date);
-    return `<div class="dday" data-id="${d.id}">
-      <div class="d-ic">${esc(d.icon||'📌')}</div>
-      <div><div class="d-title">${esc(d.title)}</div>
-        <div class="d-date">${dt.getFullYear()}. ${dt.getMonth()+1}. ${dt.getDate()} (${DOW[dt.getDay()]})</div></div>
-      <div class="d-num ${cls}">${num}</div></div>`;
-  }).join("");
+  const ups = state.ddays.filter(d => d.kind === "up").sort((a, b) => dayDiff(a.date, tk) - dayDiff(b.date, tk));
+  let html = "";
+  if (downs.length) html += `<div class="section-label">📌 디데이 · 남은 날</div>` + downs.map(d => ddCard(d, tk)).join("");
+  if (ups.length) html += `<div class="section-label">🎉 디플러스 · 지난 날부터</div>` + ups.map(d => ddCard(d, tk)).join("");
+  box.innerHTML = html;
   box.querySelectorAll(".dday").forEach(el => el.addEventListener("click", () =>
     openDdaySheet(state.ddays.find(x => x.id === el.dataset.id))));
 }
 $("dday-add").addEventListener("click", () => openDdaySheet(null));
 function openDdaySheet(d){
-  const e = d || { id:uid7(), title:"", date:todayKey(), icon:"📌" };
+  const e = d || { id:uid7(), title:"", date:todayKey(), icon:"📌", kind:"down" };
   const ICONS = ["📌","🎯","✈️","🎂","📝","💍","🏖️","🎓","💼","❤️"];
-  openSheet(`<h3>${d?"디데이 수정":"디데이 추가"}</h3>
-    <div class="field"><label>이름</label><input class="input" id="f-title" value="${esc(e.title)}" placeholder="예: 토익 시험"></div>
+  openSheet(`<h3>${d?"수정":"추가"}</h3>
+    <div class="field"><label>유형</label><div class="seg" id="f-kind">
+      <button class="seg-btn ${e.kind!=='up'?'on':''}" data-v="down">디데이 (남은 날)</button>
+      <button class="seg-btn ${e.kind==='up'?'on':''}" data-v="up">디플러스 (지난 날)</button></div></div>
+    <div class="field"><label>이름</label><input class="input" id="f-title" value="${esc(e.title)}" placeholder="예: 토익 시험 / 만난 날"></div>
     <div class="field"><label>날짜</label><input class="input" type="date" id="f-date" value="${e.date}"></div>
     <div class="field"><label>아이콘</label><div class="pill-row" id="f-icon">
       ${ICONS.map(i => `<button class="pill ${i===e.icon?'on':''}" data-i="${i}" style="font-size:18px">${i}</button>`).join("")}</div></div>
     <button class="btn btn-accent" id="f-save">저장</button>
     ${d?'<button class="btn btn-ghost" id="f-del" style="color:var(--red);border-color:var(--red)">삭제</button>':''}`,
   () => {
-    let icon = e.icon;
+    let icon = e.icon, kind = e.kind || "down";
+    $("f-kind").querySelectorAll(".seg-btn").forEach(b => b.addEventListener("click", () => {
+      kind = b.dataset.v; $("f-kind").querySelectorAll(".seg-btn").forEach(x => x.classList.toggle("on", x === b));
+    }));
     $("f-icon").querySelectorAll(".pill").forEach(b => b.addEventListener("click", () => {
       icon = b.dataset.i; $("f-icon").querySelectorAll(".pill").forEach(x => x.classList.toggle("on", x === b));
     }));
     $("f-save").addEventListener("click", () => {
       const title = $("f-title").value.trim(); if (!title){ $("f-title").focus(); return; }
-      e.title = title; e.date = $("f-date").value || todayKey(); e.icon = icon;
+      e.title = title; e.date = $("f-date").value || todayKey(); e.icon = icon; e.kind = kind;
       if (!d) state.ddays.push(e);
       save(); closeSheet(); renderDdays();
     });
@@ -787,6 +883,22 @@ function openDdaySheet(d){
       state.ddays = state.ddays.filter(x => x.id !== d.id); save(); closeSheet(); renderDdays();
     });
   });
+}
+/* 캘린더 날짜 탭 → 그날 일정 상세 */
+function openDayDetail(dk){
+  const dt = parseKey(dk), tk = todayKey();
+  const st = dayStats(dk);
+  const dds = state.ddays.filter(d => d.date === dk);
+  const tds = state.todos.filter(t => t.due === dk);
+  let body = `<h3>${dt.getFullYear()}. ${dt.getMonth()+1}. ${dt.getDate()} (${DOW[dt.getDay()]})</h3>`;
+  body += `<div class="dd-detail-row"><span>루틴 달성률</span><b>${st.pct}% · ${st.full}/${st.cnt}</b></div>`;
+  if (dds.length) body += `<div class="dd-sec">📌 디데이 · 디플러스</div>`
+    + dds.map(d => `<div class="dd-detail-row"><span>${esc(d.icon)} ${esc(d.title)}</span><b>${ddNum(d, tk).num}</b></div>`).join("");
+  if (tds.length) body += `<div class="dd-sec">📋 할 일</div>`
+    + tds.map(t => `<div class="dd-detail-row"><span>${t.done?'✓ ':''}${esc(t.text)}</span><b class="chip-pr pr${t.pr}">${PR_LABEL[t.pr]}</b></div>`).join("");
+  if (!dds.length && !tds.length && st.pct === 0) body += `<div class="empty-msg" style="padding:20px 10px">이 날의 기록이 없어요</div>`;
+  body += `<button class="btn btn-accent" id="dd-go">이 날 루틴 기록하기</button>`;
+  openSheet(body, () => $("dd-go").addEventListener("click", () => { viewDate = dk; closeSheet(); showTab("today"); }));
 }
 
 /* ═════════ 캘린더 ═════════ */
@@ -806,7 +918,7 @@ function renderCalendar(){
   const tk = todayKey();
   // 마감 할일 / 디데이 매핑
   const dueMap = {}; state.todos.forEach(t => { if (t.due && !t.done){ (dueMap[t.due] = dueMap[t.due] || []).push(t.pr); } });
-  const ddMap = {}; state.ddays.forEach(d => { ddMap[d.date] = true; });
+  const ddMap = {}; state.ddays.forEach(d => { (ddMap[d.date] = ddMap[d.date] || []).push(d); });
 
   let html = DOW.map((d,i) => `<div class="cal-dow ${i===0?'sun':i===6?'sat':''}">${d}</div>`).join("");
   for (let i = 0; i < lead; i++) html += `<div class="cal-cell empty"></div>`;
@@ -816,16 +928,14 @@ function renderCalendar(){
     const st = future ? { pct:0 } : dayStats(dk);
     const t = tint(st.pct);
     const sty = t.bg ? `style="background:${t.bg};color:${t.fg};border-color:transparent"` : "";
+    const mark = ddMap[dk] ? `<span class="cal-dd">${esc(ddMap[dk][0].icon||'📌')}</span>` : "";
     let dots = "";
-    if (dueMap[dk]) dots += dueMap[dk].slice(0,2).map(p => `<span class="cdot" style="background:${p===2?'var(--red)':p===1?'var(--amber)':'var(--sub)'}"></span>`).join("");
-    if (ddMap[dk]) dots += `<span class="cdot" style="background:var(--accent)"></span>`;
-    html += `<div class="cal-cell ${dk===tk?'today':''} ${future?'future':''}" data-dk="${dk}" ${sty}>${day}
+    if (dueMap[dk]) dots += dueMap[dk].slice(0,3).map(p => `<span class="cdot" style="background:${p===2?'var(--red)':p===1?'var(--amber)':'var(--sub)'}"></span>`).join("");
+    html += `<div class="cal-cell ${dk===tk?'today':''} ${future?'future':''}" data-dk="${dk}" ${sty}>${mark}${day}
       ${dots?`<div class="dots">${dots}</div>`:""}</div>`;
   }
   $("cal-grid").innerHTML = html;
-  $("cal-grid").querySelectorAll(".cal-cell[data-dk]").forEach(el => el.addEventListener("click", () => {
-    viewDate = el.dataset.dk; showTab("today");
-  }));
+  $("cal-grid").querySelectorAll(".cal-cell[data-dk]").forEach(el => el.addEventListener("click", () => openDayDetail(el.dataset.dk)));
 
   // 이번 달 통계
   let sum = 0, rec = 0, perfect = 0;
