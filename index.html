@@ -72,6 +72,7 @@ button,.r-item,.tab,.cal-cell{ touch-action:manipulation; -webkit-user-select:no
 .btn-danger{ background:var(--red); color:#fff; }
 .btn-row{ display:flex; gap:10px; } .btn-row .btn{ flex:1; }
 .icon-btn{ background:var(--card); color:var(--sub); cursor:pointer; width:40px; height:40px; border-radius:12px; font-size:17px; border:1px solid var(--line); flex:0 0 auto; }
+.moa-btn{ display:inline-flex; align-items:center; justify-content:center; text-decoration:none; color:var(--brand); font-weight:700; }
 .panel{ background:var(--card); border:1px solid var(--line); border-radius:18px; padding:16px; margin-bottom:14px; box-shadow:var(--shadow); }
 .panel-title{ font-size:14px; font-weight:800; margin-bottom:12px; }
 .empty-msg{ text-align:center; color:var(--sub); font-size:14px; padding:30px 12px; line-height:1.8; }
@@ -296,7 +297,10 @@ textarea.input{ resize:vertical; min-height:70px; line-height:1.5; }
 <div id="screen-today" class="hidden">
   <div class="appbar">
     <div class="logo"><span class="logo-mark">하</span>하루<small>Haru</small></div>
-    <button class="icon-btn theme-btn">🌙</button>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <a class="icon-btn moa-btn" href="https://nsaosulfate.github.io/moa/" title="모아로 돌아가기" aria-label="모아로 돌아가기">◈</a>
+      <button class="icon-btn theme-btn">🌙</button>
+    </div>
   </div>
   <div class="date-nav">
     <button class="nav-arrow" id="day-prev">‹</button>
